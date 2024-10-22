@@ -11,13 +11,21 @@ jobs:
         with:
           fetch-depth: 0
       - name: Update leap seconds in code
+        id: update_tai64
         run: |
           curl -o leap_seconds_list -L https://data.iana.org/time-zones/data/leap-seconds.list
           number=$(grep -v '^#' leap_seconds_list | tail -n1 | awk '{print $2}')
-          sed -i "s/\(1970-01-01 00:00:\)[0-9]\+ TAI/\1${number} TAI/" tai64/src/lib.rs
-          sed -i -E 's/(Self\()[0-9]+ \+ \(1 << 62\)\)/\1'"${number}"' + (1 << 62))/' tai64/src/lib.rs
+          last_number=$(grep -Eo '1970-01-01 00:00:[0-9]+ TAI' tai64/src/lib.rs | grep -Eo '[0-9]+')
+          if [ "$number" -eq "$last_number" ]; then
+            echo "number_changed=false" >> $GITHUB_OUTPUT
+          else
+            sed -i "s/\(1970-01-01 00:00:\)[0-9]\+ TAI/\1${number} TAI/" tai64/src/lib.rs
+            sed -i -E 's/(Self\()[0-9]+ \+ \(1 << 62\)\)/\1'"${number}"' + (1 << 62))/' tai64/src/lib.rs
+            echo "number_changed=true" >> $GITHUB_OUTPUT
+          fi
           rm leap_seconds_list
       - name: Create Pull Request
+        if: ${{ steps.update_tai64.outputs.number_changed == 'true' }}
         uses: peter-evans/create-pull-request@v7
         with:
           commit-message: update leap seconds in tai64
@@ -25,3 +33,4 @@ jobs:
           body: 'Following this source: https://data.iana.org/time-zones/data/leap-seconds.list, the leap seconds counter has increased.'
           branch: update-leap-seconds
           base: test-ci
+          delete-branch: true
